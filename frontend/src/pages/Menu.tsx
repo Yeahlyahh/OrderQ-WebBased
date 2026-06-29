@@ -1,0 +1,113 @@
+import Nav from '@/components/Nav';
+import SearchInput from '@/components/SearchInput';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import MenuCard from '@/components/MenuCard';
+import CategoryList from '@/components/CategoryList';
+import { useMenu } from '@/hooks/useMenu';
+import { useCategories } from '@/hooks/useCategories';
+import { useCart } from '@/context/CartContext';
+import { useNavigate } from 'react-router-dom';
+import api from '@/lib/axios';
+import { useSessionGuard } from '@/hooks/useSessionGuard';
+
+export default function Menu() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = new URLSearchParams(location.search);
+
+  const table = searchParams.get('table');
+  const tokenFromURL = searchParams.get('token');
+  const searchQuery = searchParams.get('search') || '';
+
+  const [searchTerm, setSearchTerm] = useState(searchQuery);
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+
+  const { menuItems, loading: menuLoading, error: menuError } = useMenu();
+  const { categories, loading: catLoading, error: catError } = useCategories();
+
+  const { addToCart } = useCart();
+
+  useSessionGuard();
+
+  // Save token from URL to state/localStorage and axios
+  useEffect(() => {
+    if (tokenFromURL) {
+      setSessionToken(tokenFromURL);
+      localStorage.setItem('sessionToken', tokenFromURL);
+      api.defaults.headers.common['Authorization'] = `Bearer ${tokenFromURL}`;
+    } else {
+      // If no token in URL, check localStorage
+      const storedToken = localStorage.getItem('sessionToken');
+      if (storedToken) {
+        setSessionToken(storedToken);
+        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+      }
+    }
+  }, [tokenFromURL]);
+
+  // Sync search input with URL
+  useEffect(() => {
+    setSearchTerm(searchQuery);
+  }, [searchQuery]);
+
+  // Filter menu items by search term & category
+  const filteredItems = menuItems.filter((item) => {
+    const matchesSearch = item.name
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const categorySlug =
+      item.category?.toLowerCase().replace(/\s+/g, '-') || '';
+    const matchesCategory =
+      activeCategory === 'all' || categorySlug === activeCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  return (
+    <>
+      <Nav
+        title={'Menu'}
+        backLink={`/menu?table=${table}${
+          sessionToken ? `&token=${sessionToken}` : ''
+        }`}
+      />
+
+      <SearchInput
+        value={searchTerm}
+        onChange={setSearchTerm}
+        placeholder="What do you need?"
+      />
+
+      <div className="p-4">
+        <CategoryList
+          categories={categories}
+          activeCategory={activeCategory}
+          onSelect={setActiveCategory}
+          loading={catLoading}
+          error={catError}
+        />
+      </div>
+
+      {menuLoading && <p className="text-center">Loading menu...</p>}
+      {menuError && <p className="text-center text-red-500">{menuError}</p>}
+
+      <div className="grid grid-cols-[repeat(auto-fit,_minmax(260px,_1fr))] gap-4 p-4 overflow-hidden place-items-center sm:place-items-start max-h-[600px] overflow-y-auto">
+        {!menuLoading && !menuError && filteredItems.length > 0
+          ? filteredItems.map((item) => (
+              <MenuCard
+                key={item.id}
+                item={item}
+                onAdd={(menuItem) => addToCart(menuItem, 1)}
+              />
+            ))
+          : !menuLoading &&
+            !menuError && (
+              <p className="text-center text-gray-500 col-span-full">
+                No items found
+              </p>
+            )}
+      </div>
+    </>
+  );
+}
